@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -e
 
 # Function to display error and exit
 error_exit() {
@@ -12,7 +12,7 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 # Set variables
-timezone="America/New_York"
+timezone="Europe/Tallinn"
 keymap="us"
 syslinux_path="/boot/syslinux"
 
@@ -27,9 +27,6 @@ read -p "Enter the partition size in MiB for the boot partition (e.g., 512): " b
 
 # Ask user for root partition size
 read -p "Enter the partition size in GiB for the root partition (e.g., 20): " root_size
-
-# Ask user for home partition size
-read -p "Enter the partition size in GiB for the home partition (e.g., 30): " home_size
 
 # Ask user for swap partition size
 read -p "Enter the size in GiB for the swap partition (e.g., 4): " swap_size
@@ -47,15 +44,13 @@ while true; do
     echo "Passwords did not match. Please try again."
 done
 
-#!/bin/bash -e
-
 # Definitions
 BOOT_DEVICE=${drive}1
 SWAP_DEVICE=${drive}2
 ROOT_DEVICE=${drive}3
 
 # Reset partition table and create new DOS table
-dd if=/dev/zero of=/dev/sdb bs=2M count=1 status=progress
+dd if=/dev/zero of=${drive} bs=2M count=1 status=progress
 
 # 256mb boot, 5gb swap and left for rootfs
 fdisk ${drive} <<EOF
