@@ -47,36 +47,64 @@ while true; do
     echo "Passwords did not match. Please try again."
 done
 
-# Partition the drive
-parted -s "$drive" mklabel gpt
-parted -s "$drive" mkpart ESP fat32 1MiB "${boot_size}MiB"
-parted -s "$drive" set 1 boot on
-parted -s "$drive" mkpart primary ext4 "${boot_size}MiB" "${root_size}GiB"
-parted -s "$drive" mkpart primary ext4 "${root_size}GiB" "+${home_size}GiB"
-parted -s "$drive" mkpart primary linux-swap "${root_size + home_size}GiB" "+${swap_size}GiB"
+#!/bin/bash -e
 
-# Format partitions
-mkfs.fat -F32 "${drive}1"
-mkfs.ext4 -F "${drive}2"
-mkfs.ext4 -F "${drive}3"
-mkswap "${drive}4"
+# Definitions
+BOOT_DEVICE=${drive}1
+SWAP_DEVICE=${drive}2
+ROOT_DEVICE=${drive}3
 
-# Mount the root partition
-mount "${drive}2" /mnt
+# Reset partition table and create new DOS table
+dd if=/dev/zero of=/dev/sdb bs=2M count=1 status=progress
 
-# Create subvolumes for Btrfs
-mkdir /mnt/home
-mount "${drive}3" /mnt/home
+# 256mb boot, 5gb swap and left for rootfs
+fdisk ${drive} <<EOF
+o
+n
+p
+1
 
-# Enable swap
-swapon "${drive}4"
++${boot_size}M
+n
+p
+2
 
-# Mount boot partition
-mkdir /mnt/boot
-mount "${drive}1" /mnt/boot
++${swap_size}G
+n
+p
+3
+
++${root_size}G
+a
+1
+w
+EOF
+
+# Format
+mkfs.vfat ${BOOT_DEVICE}
+mkfs.btrfs ${ROOT_DEVICE}
+mswap ${SWAP_DEVICE}
+swapon ${SWAP_DEVICE}
+
+# Create subvolumes
+mount ${ROOT_DEVICE} /mnt
+pushd /mnt
+for k in home var root; do
+    btrfs subvolume create "@${k}"
+done
+popd
+umount /mnt
+
+# Mount everything into correct place
+mount -o subvolume=@root ${ROOT_DEVICE} /mnt
+mkdir -p /mnt/{boot,var,home}
+mount -o subvolume=@var ${ROOT_DEVICE} /mnt/var
+mount -o subvolume=@home ${ROOT_DEVICE} /mnt/home
+mount ${BOOT_DEVICE} /mnt/boot
 
 # Install base system
-pacstrap /mnt base linux linux-firmware
+pacstrap /mnt base base-devel
+
 
 # Generate fstab
 genfstab -U /mnt >> /mnt/etc/fstab
@@ -114,8 +142,18 @@ echo "127.0.1.1 $hostname.localdomain $hostname" >> /etc/hosts
 echo "root:$password" | chpasswd
 
 # Install syslinux bootloader
-pacman -S --noconfirm syslinux
-bootctl install
+pacman -S --noconfirm syslinux gptfdisk
+
+# Set up bootloader
+cat > /mnt/boot/syslinux/syslinux.cfg <<EOF
+DEFAULT archlinux
+TIMEOUT 1
+
+LABEL archlinux
+    LINUX ../vmlinuz-linux
+    APPEND root=${ROOT_DEVICE} rw
+    INITRD ../initramfs-linux.img
+EOF
 
 # Install AMD Radeon drivers
 pacman -S --noconfirm xf86-video-amdgpu mesa
@@ -134,7 +172,13 @@ echo "$username:$password" | chpasswd
 # Allow wheel group to execute sudo without password
 sed -i 's/^# %wheel ALL=(ALL) NOPASSWD: ALL$/%wheel ALL=(ALL) NOPASSWD: ALL/' /etc/sudoers
 
+mkinitcpio -p linux
+
 EOF
+
+# Generate fstab
+genfstab -U /mnt >> /mnt/etc/fstab
+
 
 # Unmount and reboot
 umount -R /mnt
