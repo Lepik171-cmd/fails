@@ -19,7 +19,7 @@ syslinux_path="/boot/syslinux"
 # Print available drives
 lsblk -d -o NAME,SIZE -n | grep -v "^loop" | grep -v "^sr" | grep -v "^ram"
 
-# Ask user for drive
+# Ask user for drive to install Arch Linux
 read -p "Enter the drive to install Arch Linux (e.g., /dev/sda): " drive
 
 # Ask user for boot partition size
@@ -87,6 +87,9 @@ pacstrap /mnt base linux linux-firmware
 # Generate fstab
 genfstab -U /mnt >> /mnt/etc/fstab
 
+# Add Windows drive to Syslinux boot menu
+echo -e "LABEL windows\n\tMENU LABEL Windows\n\tCOM32 chain.c32\n\tAPPEND hd0 1" >> /mnt$syslinux_path/syslinux.cfg
+
 # Chroot into the new system
 arch-chroot /mnt /bin/bash <<EOF
 
@@ -116,7 +119,7 @@ echo "root:$password" | chpasswd
 # Install syslinux bootloader
 pacman -S --noconfirm syslinux
 syslinux-install_update -i -a -m
-sed -i "s/root=\/dev\/sda3/root=$drive2/" /boot/syslinux/syslinux.cfg
+sed -i "s/root=\/dev\/sda3/root=$drive2/" $syslinux_path/syslinux.cfg
 
 # Install AMD Radeon drivers
 pacman -S --noconfirm xf86-video-amdgpu mesa
@@ -133,10 +136,4 @@ useradd -m -G wheel -s /bin/bash "$username"
 echo "$username:$password" | chpasswd
 
 # Allow wheel group to execute sudo without password
-sed -i 's/^# %wheel ALL=(ALL) NOPASSWD: ALL$/%wheel ALL=(ALL) NOPASSWD: ALL/' /etc/sudoers
-
-EOF
-
-# Unmount and reboot
-umount -R /mnt
-reboot
+sed -i 's/^# %wheel ALL=(ALL) NOPASS
