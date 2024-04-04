@@ -49,15 +49,16 @@ done
 
 # Partition the drive
 parted -s "$drive" mklabel gpt
-parted -s "$drive" mkpart primary ext4 1MiB "${boot_size}MiB"
+parted -s "$drive" mkpart ESP fat32 1MiB "${boot_size}MiB"
+parted -s "$drive" set 1 boot on
 parted -s "$drive" mkpart primary ext4 "${boot_size}MiB" "${root_size}GiB"
 parted -s "$drive" mkpart primary ext4 "${root_size}GiB" "+${home_size}GiB"
 parted -s "$drive" mkpart primary linux-swap "${root_size + home_size}GiB" "+${swap_size}GiB"
 
 # Format partitions
-mkfs.ext4 -F "${drive}1"
-mkfs.btrfs -f "${drive}2"
-mkfs.btrfs -f "${drive}3"
+mkfs.fat -F32 "${drive}1"
+mkfs.ext4 -F "${drive}2"
+mkfs.ext4 -F "${drive}3"
 mkswap "${drive}4"
 
 # Mount the root partition
@@ -66,13 +67,6 @@ mount "${drive}2" /mnt
 # Create subvolumes for Btrfs
 mkdir /mnt/home
 mount "${drive}3" /mnt/home
-btrfs subvolume create /mnt/@root
-btrfs subvolume create /mnt/@home
-umount /mnt/home
-
-# Mount Btrfs subvolumes
-mount -o subvol=@root "${drive}2" /mnt
-mount -o subvol=@home "${drive}3" /mnt/home
 
 # Enable swap
 swapon "${drive}4"
@@ -88,7 +82,7 @@ pacstrap /mnt base linux linux-firmware
 genfstab -U /mnt >> /mnt/etc/fstab
 
 # Add Windows drive to Syslinux boot menu
-echo -e "LABEL windows\n\tMENU LABEL Windows\n\tCOM32 chain.c32\n\tAPPEND hd0 1" >> /mnt$syslinux_path/syslinux.cfg
+echo -e "LABEL windows\n\tMENU LABEL Windows\n\tCOM32 chain.c32\n\tAPPEND fs ntldr=/bootmgr" >> /mnt$syslinux_path/syslinux.cfg
 
 # Chroot into the new system
 arch-chroot /mnt /bin/bash <<EOF
@@ -118,8 +112,7 @@ echo "root:$password" | chpasswd
 
 # Install syslinux bootloader
 pacman -S --noconfirm syslinux
-syslinux-install_update -i -a -m
-sed -i "s/root=\/dev\/sda3/root=$drive2/" $syslinux_path/syslinux.cfg
+bootctl install
 
 # Install AMD Radeon drivers
 pacman -S --noconfirm xf86-video-amdgpu mesa
@@ -136,4 +129,10 @@ useradd -m -G wheel -s /bin/bash "$username"
 echo "$username:$password" | chpasswd
 
 # Allow wheel group to execute sudo without password
-sed -i 's/^# %wheel ALL=(ALL) NOPASS
+sed -i 's/^# %wheel ALL=(ALL) NOPASSWD: ALL$/%wheel ALL=(ALL) NOPASSWD: ALL/' /etc/sudoers
+
+EOF
+
+# Unmount and reboot
+umount -R /mnt
+reboot
