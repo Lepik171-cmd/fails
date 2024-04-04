@@ -45,15 +45,15 @@ while true; do
 done
 
 # Definitions
-BOOT_DEVICE=${drive}1
-SWAP_DEVICE=${drive}2
-ROOT_DEVICE=${drive}3
+BOOT_DEVICE="${drive}1"
+SWAP_DEVICE="${drive}2"
+ROOT_DEVICE="${drive}3"
 
 # Reset partition table and create new DOS table
-dd if=/dev/zero of=${drive} bs=2M count=1 status=progress
+dd if=/dev/zero of="${drive}" bs=2M count=1 status=progress
 
-# 256mb boot, 5gb swap and left for rootfs
-fdisk ${drive} <<EOF
+# Partition the drive
+fdisk "${drive}" <<EOF
 o
 n
 p
@@ -75,70 +75,76 @@ a
 w
 EOF
 
-# Format
-mkfs.vfat ${BOOT_DEVICE}
-mkfs.btrfs ${ROOT_DEVICE}
-mswap ${SWAP_DEVICE}
-swapon ${SWAP_DEVICE}
+# Format partitions
+mkfs.vfat -F32 "${BOOT_DEVICE}"
+mkswap "${SWAP_DEVICE}"
+mkfs.btrfs "${ROOT_DEVICE}"
+
+# Mount partitions
+mount "${ROOT_DEVICE}" /mnt
+mkdir -p /mnt/boot
+mount "${BOOT_DEVICE}" /mnt/boot
 
 # Create subvolumes
-mount ${ROOT_DEVICE} /mnt
-pushd /mnt
-for k in home var root; do
-    btrfs subvolume create "@${k}"
-done
-popd
-umount /mnt
+btrfs subvolume create /mnt/@
+btrfs subvolume create /mnt/@home
+btrfs subvolume create /mnt/@var
 
-# Mount everything into correct place
-mount -o subvolume=@root ${ROOT_DEVICE} /mnt
-mkdir -p /mnt/{boot,var,home}
-mount -o subvolume=@var ${ROOT_DEVICE} /mnt/var
-mount -o subvolume=@home ${ROOT_DEVICE} /mnt/home
-mount ${BOOT_DEVICE} /mnt/boot
+# Mount subvolumes
+umount /mnt
+mount -o subvol=@ "${ROOT_DEVICE}" /mnt
+mkdir -p /mnt/{boot,home,var}
+mount -o subvol=@home "${ROOT_DEVICE}" /mnt/home
+mount -o subvol=@var "${ROOT_DEVICE}" /mnt/var
 
 # Install base system
 pacstrap /mnt base base-devel
+
+# Generate fstab
+genfstab -U /mnt >> /mnt/etc/fstab
 
 # Chroot into the new system
 arch-chroot /mnt /bin/bash <<EOF
 
 # Set the timezone
-ln -sf "/usr/share/zoneinfo/$timezone" /etc/localtime
+ln -sf "/usr/share/zoneinfo/${timezone}" /etc/localtime
 hwclock --systohc
 
 # Set locale
-sed -i "s/^#$locale/$locale/" /etc/locale.gen
+sed -i "s/^#en_US.UTF-8/en_US.UTF-8/" /etc/locale.gen
 locale-gen
-echo "LANG=$locale" > /etc/locale.conf
+echo "LANG=en_US.UTF-8" > /etc/locale.conf
 
 # Set keymap
-echo "KEYMAP=$keymap" > /etc/vconsole.conf
+echo "KEYMAP=${keymap}" > /etc/vconsole.conf
 
 # Set hostname
-echo "$hostname" > /etc/hostname
+read -p "Enter hostname: " hostname
+echo "\$hostname" > /etc/hostname
 
 # Add hosts
-echo "127.0.0.1 localhost" >> /etc/hosts
-echo "::1 localhost" >> /etc/hosts
-echo "127.0.1.1 $hostname.localdomain $hostname" >> /etc/hosts
+cat <<EOT >> /etc/hosts
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   \$hostname.localdomain \$hostname
+EOT
 
 # Set root password
-echo "root:$password" | chpasswd
+echo "root:${password}" | chpasswd
 
 # Install syslinux bootloader
 pacman -S --noconfirm syslinux gptfdisk
 
 # Set up bootloader
-cat > /mnt/boot/syslinux/syslinux.cfg <<EOF
-DEFAULT archlinux
-TIMEOUT 1
-
-LABEL archlinux
+cat > /mnt/boot/syslinux/syslinux.cfg <<EOL
+DEFAULT arch
+PROMPT 0
+TIMEOUT 50
+LABEL arch
     LINUX ../vmlinuz-linux
     APPEND root=${ROOT_DEVICE} rw
     INITRD ../initramfs-linux.img
-EOF
+EOL
 
 # Install AMD Radeon drivers
 pacman -S --noconfirm xf86-video-amdgpu mesa
@@ -152,18 +158,15 @@ pacman -S --noconfirm i3-gaps i3status i3lock dmenu rxvt-unicode
 
 # Add user
 useradd -m -G wheel -s /bin/bash "$username"
-echo "$username:$password" | chpasswd
+echo "${username}:${password}" | chpasswd
 
 # Allow wheel group to execute sudo without password
 sed -i 's/^# %wheel ALL=(ALL) NOPASSWD: ALL$/%wheel ALL=(ALL) NOPASSWD: ALL/' /etc/sudoers
 
+# Generate initramfs
 mkinitcpio -p linux
 
 EOF
-
-# Generate fstab
-genfstab -U /mnt >> /mnt/etc/fstab
-
 
 # Unmount and reboot
 umount -R /mnt
