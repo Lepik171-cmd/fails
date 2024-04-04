@@ -12,11 +12,7 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 # Set variables
-hostname="arch"
-username="user"
-password="password"
 timezone="America/New_York"
-locale="en_US.UTF-8"
 keymap="us"
 syslinux_path="/boot/syslinux"
 
@@ -37,6 +33,19 @@ read -p "Enter the partition size in GiB for the home partition (e.g., 30): " ho
 
 # Ask user for swap partition size
 read -p "Enter the size in GiB for the swap partition (e.g., 4): " swap_size
+
+# Ask user for username
+read -p "Enter username for the new user: " username
+
+# Ask user for password (twice for confirmation)
+while true; do
+    read -s -p "Enter password for the new user: " password
+    echo
+    read -s -p "Confirm password: " password_confirm
+    echo
+    [[ "$password" = "$password_confirm" ]] && break
+    echo "Passwords did not match. Please try again."
+done
 
 # Partition the drive
 parted -s "$drive" mklabel gpt
