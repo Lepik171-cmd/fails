@@ -100,16 +100,6 @@ mount ${BOOT_DEVICE} /mnt/boot
 # Install base system
 pacstrap /mnt base base-devel
 
-
-# Generate fstab
-genfstab -U /mnt >> /mnt/etc/fstab
-
-# Add Windows drive to Syslinux boot menu
-echo -e "LABEL windows\n\tMENU LABEL Windows\n\tCOM32 chain.c32\n\tAPPEND fs ntldr=/bootmgr" >> /mnt$syslinux_path/syslinux.cfg
-
-# Add Arch Linux entry to Syslinux boot menu
-echo -e "LABEL arch\n\tMENU LABEL Arch Linux\n\tLINUX /vmlinuz-linux\n\tAPPEND root=$drive2 rw\n\tINITRD /initramfs-linux.img" >> /mnt$syslinux_path/syslinux.cfg
-
 # Chroot into the new system
 arch-chroot /mnt /bin/bash <<EOF
 
